@@ -1,6 +1,6 @@
 #Author: Carlos Martinez  GitHub @cmartinezone
 
-#Lottery Number Generator that they don't match with preveus results
+#Lottery PowerBall Numbers Generator
 #The numbers randomly choosen are picked in base of the high (hots) numbers played during the past 10 years.
 
 #Lottery API Get Request
