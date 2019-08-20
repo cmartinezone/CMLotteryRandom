@@ -5,20 +5,24 @@
 
 ########################################## SETTINGS VARIABLES ############################################
 #Today Date
-$TodayDate = Get-Date -Format  "MM-dd-yyyy"
+$TodayDate    =  Get-Date -Format  "MM-dd-yyyy"
+#Next Draw Date
+$NextDrawdate =  Get-Date
+while ($NextDrawdate.DayOfWeek  -notin 'Wednesday','Saturday') { $NextDrawdate = $NextDrawdate.AddDays(1) }
+$NextDrawdate = $NextDrawdate.ToString('MM-dd-yyyy')
+
 
 #Local Data files path
-$LocalDataSetsPath = ".\Datasets"
-$LocalPickedNumbersPath  = ".\PickedNumbers"
-$LocalWebData = "$LocalDataSetsPath\WebData.csv"
-$LocalAllWhiteBalls = "$LocalDataSetsPath\AllFrom1To5.csv"
-$LocalAllRedBalls = "$LocalDataSetsPath\AllRedBall.csv"
-$LocalHistoryResults = "$LocalDataSetsPath\HistoryResults.csv"
-$VeryLocalDataSets = Test-Path -Path  $LocalDataSetsPath , $LocalWebData, $LocalHistoryResults, $LocalAllWhiteBalls, $LocalAllRedBalls
+$LocalDataSetsPath      = ".\Datasets"
+$LocalPickedNumbersPath = ".\PickedNumbers"
+$LocalWebData           = "$LocalDataSetsPath\WebData.csv"
+$LocalAllWhiteBalls     = "$LocalDataSetsPath\AllFrom1To5.csv"
+$LocalAllRedBalls       = "$LocalDataSetsPath\AllRedBall.csv"
+$LocalHistoryResults    = "$LocalDataSetsPath\HistoryResults.csv"
+$VerifyLocalDataSets    = Test-Path -Path  $LocalDataSetsPath , $LocalWebData, $LocalHistoryResults, $LocalAllWhiteBalls, $LocalAllRedBalls
 
 #Nuber of days for refreshing data sets equal or grether then 
-$FreshDayNumber = 3
-
+$RefreshDayNumber = 3
 ########################################## SETTINGS VARIABLES ############################################
 
 #Function to Refresh local Datasets.
@@ -27,7 +31,7 @@ $FreshDayNumber = 3
 function Get-RefreshLocalDataSets ($Date) {
     
 
-    if ( $false -notin $VeryLocalDataSets ) {    
+    if ( $false -notin $VerifyLocalDataSets ) {    
         $LastUpdateDate = Import-Csv  $LocalWebData | Select-Object -Property DATE -First 1  
        
         #Get the total of days of the last draw date. 
@@ -39,7 +43,7 @@ function Get-RefreshLocalDataSets ($Date) {
     }
     
     #Refresh Datasets if the date of the last Draw is equal or greather then the number of days set.
-    if ( ( $false -in $VeryLocalDataSets ) -or ( $LastUpdate.TotalDays -ge $FreshDayNumber )) {
+    if ( ( $false -in $VerifyLocalDataSets ) -or ( $LastUpdate.TotalDays -gt  $RefreshDayNumber )) {
     
         try {
             #PowerBall Lottery API Get Request From data.ny.gov public API 10 years records.
@@ -50,7 +54,7 @@ function Get-RefreshLocalDataSets ($Date) {
         }
         catch {
             $APIOnline = $false
-            if ($false -notin $VeryLocalDataSets) {
+            if ($false -notin $VerifyLocalDataSets) {
                 Write-Host "Status: API Ofline - Unable to Refresh Local Data Sets"  -ForegroundColor Red
                 Write-Host "You Will continue using the Current Local Data Sets" -ForegroundColor Green
             }else{
@@ -117,7 +121,6 @@ function Get-Median
     process {
         $numberSeries += $number
     }
-    
     end {
         $sortedNumbers = @($numberSeries | Sort-Object)
         if ($numberSeries.Count % 2) {
@@ -131,10 +134,52 @@ function Get-Median
 } 
 ########################## END MEDIAN FUNCTION ##########################
 
+##########################GET MODA FUNCTION ##########################
+function Get-Moda {
+    param(
+        # The numbers to average
+        [Parameter(Mandatory = $true, ValueFromPipelineByPropertyName = $true, Position = 0)]
+        [Double[]]
+        $Number
+    )
+    
+    begin {
+        $numberSeries = @()
+    }
+    
+    process {
+        $numberSeries += $number
+    }
+    
+    end {
+        $data = $numberSeries
+
+        $i = 0
+        $modevalue = @()
+        foreach ($group in ($data | Group-Object | Sort-Object -Descending count)) {
+            if ($group.count -ge $i) {
+                $i = $group.count
+                $modevalue += $group.Name
+            }
+            else {
+                break
+            }
+        }
+
+        # $modevalue = $modevalue | ForEach-Object { Write-Output $_  }
+         
+        # $modevalue = $modevalue | ForEach-Object { [int]$_; if ($_ -le 9) { $_ = "0" + $_ } }
+
+         $modevalue
+       
+    }
+} 
+########################## END MEDIAN FUNCTION ##########################
+
     #Refresh Local Data
     Get-RefreshLocalDataSets($TodayDate)
   
-if ( $false -notin $VeryLocalDataSets) {
+if ( $false -notin $VerifyLocalDataSets) {
     
     #Importing Data From CSV as Objects 
     $AllFrom1To5 = Import-Csv  $LocalAllWhiteBalls | Select-Object -Property All, DATE
@@ -167,32 +212,44 @@ if ( $false -notin $VeryLocalDataSets) {
             
             #Test: Write-Host $TotalFound.Count
 
-            ############## Calculate media  Total of the number played, dates of the number played, number of days between dates
+            ############## Calculate media  Total of the number played, dates of the number +played, number of days between dates
             #Number of day between today and last played date #
             
             $GetNumberOfDays = @()
 
             for ($i = 0; $i -lt $TotalFound.Count; $i++) {
-                $Nextdate = $i + 1
+               $Nextdate = $i + 1
                 if ( $null -ne $TotalFound[$Nextdate].DATE) {
                     $GetNumberOfDays += New-TimeSpan -Start $TotalFound[$i].DATE -End  $TotalFound[$Nextdate].DATE | Select-Object -Property TotalDays 
-                }
+               }
             } 
+            
+          #  $startdateindex = 0
+          # $enddateindex   = 1
+          #  do {
+          #     $GetNumberOfDays += New-TimeSpan -Start $TotalFound[$startdateindex].DATE -End  $TotalFound[$enddateindex].DATE | Select-Object -Property TotalDays 
+                
+          #      $startdateindex ++
+           #     $enddateindex   ++
+           # } until ($null -eq $TotalFound[$enddateindex].DATE)
 
             $LastPlayedNumberdate = $TotalFound | Select-Object -Last 1
-            $Curentdays = New-TimeSpan -Start $LastPlayedNumberdate.DATE -End  $TodayDate | Select-Object -Property TotalDays            
-            $Media = Get-Median  $GetNumberOfDays.TotalDays
-
+            $LastGame = New-TimeSpan -Start $LastPlayedNumberdate.DATE -End  $NextDrawdate | Select-Object -Property TotalDays            
+            $Median = Get-Median  $GetNumberOfDays.TotalDays
+            $Moda  = Get-Moda    $GetNumberOfDays.TotalDays
             #############  Calculate media 
 
             #The number generated must not be one of the preveus number generated 
             #The number must be played in the past 10 years 70 or more times or be any of the following numbers 61,64,69
             
-            ##Test Write-Host "White Ball:" "$DrawNumber" -ForegroundColor DarkCyan
-            ##Test Write-Host  "Last play todal days:"  $Curentdays.TotalDays -ForegroundColor Yellow
-            ##Test Write-Host "Media:" $Media -ForegroundColor Green
+              Write-Host "White Ball:" "$DrawNumber" -ForegroundColor DarkCyan
+              Write-Host  "Last play todal days:"  $LastGame.TotalDays -ForegroundColor Yellow
+              Write-Host "Media:" $Median -ForegroundColor Red
+              Write-Host "Moda:"  $Moda -ForegroundColor Green
+              Write-Host "total times" $TotalFound.count
+            # -and ( $Media -ge $LastGame.TotalDays -or  $LastGame.TotalDays -in $Moda )
 
-        } until ( ( $DrawNumber -notin $WiningNumbers ) -and ($TotalFound.Count -ge 70 -or $DrawNumber -in "61", "64", "69") -and ( $Curentdays.TotalDays -ge $Media ))
+        } until ( ( $DrawNumber -notin $WiningNumbers ) -and ($TotalFound.Count -ge 72 -or $DrawNumber -in "61", "64","66", "69"))
       
         $WiningNumbers += $DrawNumber
     }
@@ -215,27 +272,40 @@ if ( $false -notin $VeryLocalDataSets) {
         
            $GetNumberOfDays = @()
 
-            for ($i = 0; $i -lt   $TotalRedBallFound.Count; $i++) {
-                $Nextdate = $i + 1
+            
+           for ($i = 0; $i -lt   $TotalRedBallFound.Count; $i++) {
+               $Nextdate = $i + 1
                 if ( $null -ne  $TotalRedBallFound[$Nextdate].DATE) {
-                    $GetNumberOfDays += New-TimeSpan -Start $TotalFound[$i].DATE -End  $TotalFound[$Nextdate].DATE | Select-Object -Property TotalDays 
+                   $GetNumberOfDays += New-TimeSpan -Start $TotalFound[$i].DATE -End  $TotalFound[$Nextdate].DATE | Select-Object -Property TotalDays 
                 }
-            } 
+           } 
+
+           # $startdateindex = 0
+           # $enddateindex   = 1
+           # do {
+           #    $GetNumberOfDays += New-TimeSpan -Start $TotalRedBallFound[$startdateindex].DATE -End  $TotalRedBallFound[$enddateindex].DATE | Select-Object -Property TotalDays 
+                
+           #     $startdateindex ++
+           #    $enddateindex   ++
+           #} until ($null -eq $TotalRedBallFound[$enddateindex].DATE)
 
             $LastPlayedNumberdate =   $TotalRedBallFound | Select-Object -Last 1
-            $Curentdays = New-TimeSpan -Start $LastPlayedNumberdate.DATE -End  $TodayDate | Select-Object -Property TotalDays
-            $Media = Get-Median  $GetNumberOfDays.TotalDays 
-
+            $LastGame = New-TimeSpan -Start $LastPlayedNumberdate.DATE -End  $NextDrawdate | Select-Object -Property TotalDays
+            $Median = Get-Median  $GetNumberOfDays.TotalDays 
+            $Moda  = Get-Moda    $GetNumberOfDays.TotalDays
             ############# Calculate Media
 
           
         #The number must be played in the past 10 years 30 or more times
-    } until (( $TotalRedBallFound.Count -ge 30 ) -and (  $Curentdays.TotalDays -ge $Media  ))
+        # -and (  $Media -ge $LastGame.TotalDays -or  $LastGame.TotalDays -in $Moda  )
 
-    ##Test Write-Host "Power Ball:"  "$RedBall" -ForegroundColor DarkCyan
-    ##Test Write-Host  "Last play todal days:"  $Curentdays.TotalDays -ForegroundColor Yellow
-    ##Test Write-Host "Media:" $Media -ForegroundColor Green
-    ##Test Write-Host  $TotalRedBallFound.Count
+    } until (( $TotalRedBallFound.Count -ge 32 ))
+
+    Write-Host "Power Ball:"  "$RedBall" -ForegroundColor DarkCyan
+    Write-Host  "Last play todal days:"  $LastGame.TotalDays -ForegroundColor Yellow
+    Write-Host "Media:" $Median -ForegroundColor Red
+    Write-Host "Moda:"  $Moda -ForegroundColor Green
+    Write-Host "Play total" $TotalRedBallFound.Count
 
     #Number randomly generated for White Ball 
     $WiningNumbers = $WiningNumbers | Sort-Object
