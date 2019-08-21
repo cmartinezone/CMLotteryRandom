@@ -349,17 +349,22 @@ if ( $false -notin $VerifyLocalDataSets) {
     Write-Host "!!!Welcome To PowerBall Draw Plus!!!" -BackgroundColor  DarkMagenta
     #Write-Host "Type your username:" -ForegroundColor Yellow
     $UserName = Read-Host "What is your username pick any?:"
+    
+   if (Test-Path ".\PickedNumbers") {
 
-    $PreveusDrew =  Get-ChildItem -Path .\PickedNumbers -File *$UserName* 
+        $PreveusDrew =  Get-ChildItem -Path ".\PickedNumbers" -File *$UserName*     
+    }
+    
     if (  $null -ne $PreveusDrew  -and $null -ne $UserName ) { 
        Write-Host "We have found Preveus Drew in your name" -ForegroundColor Green
 
-       $GetResult = Read-Host "Do you wan to check your tickets 1 = YES 2 = NO?"
+       $GetResult = Read-Host "Do you wan to check your tickets YES=1 NO=2?"
        
     }
 
     if ($GetResult -match '\d' -and $GetResult -eq 1 ) {
-        
+        Write-Host "Feature in Progress no Ready yet!" -ForegroundColor Yellow
+       # Get-ChildItem -Path ".\PickedNumbers" -File *$UserName* | Select-Object Name | Sort-Object
     }
     else {
         Write-Host "$ Let's Draw your Numbers $" -ForegroundColor Yellow
@@ -401,8 +406,7 @@ if ( $false -notin $VerifyLocalDataSets) {
             Write-Output "N1,N2,N3,N4,N5,RB,DATE" | Out-File "$LocalPickedNumbersPath\Picked-$UserName-$TodayDate.csv" -Force
             $SaveResultsToCSV | ForEach-Object {  Write-Output ($_ + $TodayDate)} | Out-File "$LocalPickedNumbersPath\Picked-$UserName-$TodayDate.csv" -Append -Force
         }
-    }
-  
+    }  
 
     ##################################### END USER INTERACTION #######################################
 }
