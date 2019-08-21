@@ -18,16 +18,105 @@ $LocalPickedNumbersPath = ".\PickedNumbers"
 $LocalWebData           = "$LocalDataSetsPath\WebData.csv"
 $LocalAllWhiteBalls     = "$LocalDataSetsPath\AllFrom1To5.csv"
 $LocalAllRedBalls       = "$LocalDataSetsPath\AllRedBall.csv"
+$WhiteBallsDaysStadistic= "$LocalDataSetsPath\WhiteBallsDaysStadistic.csv"
+$RedBallsDaysStadistic  = "$LocalDataSetsPath\RedBallsDaysStadistic.csv"
 $LocalHistoryResults    = "$LocalDataSetsPath\HistoryResults.csv"
-$VerifyLocalDataSets    = Test-Path -Path  $LocalDataSetsPath , $LocalWebData, $LocalHistoryResults, $LocalAllWhiteBalls, $LocalAllRedBalls
+$VerifyLocalDataSets    = Test-Path -Path  $LocalDataSetsPath , $LocalWebData, $LocalHistoryResults, $LocalAllWhiteBalls, $LocalAllRedBalls, $WhiteBallsDaysStadistic, $RedBallsDaysStadistic
 
 #Nuber of days for refreshing data sets equal or grether then 
-$RefreshDayNumber = 3
-########################################## SETTINGS VARIABLES ############################################
+$RefreshDayNumber = 4
+########################################## END SETTINGS VARIABLES ############################################
+
+##########################################! MEAN, MEDIAN, MODA FUNCTION ###################################!
+function Get-Mean {
+    param(
+        # The numbers to average
+        [Parameter(Mandatory = $true, ValueFromPipelineByPropertyName = $true, Position = 0)]
+        [Double[]]
+        $Number
+    )
+    
+    begin {
+        $numberSeries = @()
+    }
+    
+    process {
+        $numberSeries += $number
+    }
+    
+    end {
+        ($numberSeries |Measure-Object -Average).Average
+    }
+} 
+function Get-Median {
+    param(
+        # The numbers to average
+        [Parameter(Mandatory = $true, ValueFromPipelineByPropertyName = $true, Position = 0)]
+        [Double[]]
+        $Number
+    )
+    
+    begin {
+        $numberSeries = @()
+    }
+    
+    process {
+        $numberSeries += $number
+    }
+    
+    end {
+        $sortedNumbers = @($numberSeries | Sort-Object)
+        if ($numberSeries.Count % 2) {
+            # Odd, pick the middle
+            $sortedNumbers[($sortedNumbers.Count / 2) - 1]
+        }
+        else {
+            # Even, average the middle two
+            ($sortedNumbers[($sortedNumbers.Count / 2)] + $sortedNumbers[($sortedNumbers.Count / 2) - 1]) / 2
+        }                        
+    }
+} 
+function Get-Moda {
+    param(
+        # The numbers to average
+        [Parameter(Mandatory = $true, ValueFromPipelineByPropertyName = $true, Position = 0)]
+        [Double[]]
+        $Number
+    )
+    
+    begin {
+        $numberSeries = @()
+    }
+    
+    process {
+        $numberSeries += $number
+    }
+    
+    end {
+        $data = $numberSeries
+
+        $i = 0
+        $modevalue = @()
+        foreach ($group in ($data | Group-Object | Sort-Object -Descending count)) {
+            if ($group.count -ge $i) {
+                $i = $group.count
+                $modevalue += $group.Name
+            }
+            else {
+                break
+            }
+        }
+
+         $modevalue
+       
+    }
+} 
+
+#####################################! END: MEAN, MEDIAN, MODA FUNCTION ###################################!
 
 #Function to Refresh local Datasets.
 
-##################### REFRESH LOCAL DATA FUNCTION #######################
+##################### TODO: REFRESH LOCAL DATA FUNCTION #######################
 function Get-RefreshLocalDataSets ($Date) {
     
 
@@ -63,6 +152,7 @@ function Get-RefreshLocalDataSets ($Date) {
         }
         
         if ($true -eq $APIOnline) {
+            
             #EXPORT: Parsin Data from API Response to CSV and Adding commas to API Response. 
             $WiningNumbersToCSV = $OnlineData | ForEach-Object { $Date = [datetime]$_.draw_date ; $Date = $Date.ToString('MM-dd-yyyy'); 
                 Write-Output  (($_.winning_numbers -replace (" ", ",")) + "," + $Date) }
@@ -97,84 +187,63 @@ function Get-RefreshLocalDataSets ($Date) {
             $AllRedBall = $AllRedBall | ForEach-Object { Write-Output ( $_.RB + "," + $_.DATE) } 
             Write-Output "RB,DATE" | Out-File    $LocalAllRedBalls -Force
             $AllRedBall | Add-Content $LocalAllRedBalls -Force
+
+            #Calculate White Balls and Save Local, number, totalplay  Mean, Media, Moda, lastdate  
+            $WhiteBalls = Import-Csv $LocalAllWhiteBalls 
+            $WhiteBallsRange = (1..69)
+            Write-Output "NUMBER,TOTALPLAY,MEAN,MEDIAN,MODA,LASTDATE" | Out-File $WhiteBallsDaysStadistic
+            $WhiteBallsRange = $WhiteBallsRange | ForEach-Object { if ($_ -le 9) { $_ = ("0"+$_) }; Write-Output $_ } 
+           
+            foreach ( $WhiteBallNumber in $WhiteBallsRange) {
+                $AllFound = $WhiteBalls | Where-Object { $_.ALL -eq $WhiteBallNumber }
+                $AllFound = $AllFound | Sort-Object { $_.DATE -as [datetime] }
+                
+                $GetNumberOfDays = @()
+                for ($i = 0; $i -lt $AllFound.count; $i++) {
+               
+                    $Nextdate = $i + 1
+                    if (  $null -ne $AllFound[$Nextdate].DATE ) {
+                        $TotalDays = New-TimeSpan -Start $AllFound[$i].DATE -End  $AllFound[$Nextdate].DATE | Select-Object -Property TotalDays 
+                        $GetNumberOfDays += $TotalDays
+                    }
+                } 
+             
+                $Media = Get-Median $GetNumberOfDays.TotalDays
+                $Moda = Get-Moda $GetNumberOfDays.TotalDays
+                $Mean = Get-Mean $GetNumberOfDays.TotalDays
+                $LastPlayed = $AllFound | Select-Object -Last 1
+                Write-Output ("$WhiteBallNumber,"+$AllFound.count+","+ [int]$Mean +","+[int]$Media +","+$Moda +"," + $LastPlayed.DATE) | Add-Content $WhiteBallsDaysStadistic -Force
+            }
+
+             #Calculate Red Balls and Save Local, number, totalplay  Mean, Media, Moda, lastdate  
+             $RedBalls = Import-Csv $LocalAllRedBalls
+             $RedBallsRange = (1..26)
+             Write-Output "NUMBER,TOTALPLAY,MEAN,MEDIAN,MODA,LASTDATE" | Out-File $RedBallsDaysStadistic
+             $RedBallsRange = $RedBallsRange | ForEach-Object { if ($_ -le 9) { $_ = ("0"+$_) }; Write-Output $_ } 
+             foreach ( $RedBallNumber in  $RedBallsRange ) {
+                 $AllFound =  $RedBalls | Where-Object { $_.RB -eq $RedBallNumber }
+                 $AllFound = $AllFound | Sort-Object { $_.DATE -as [datetime] }
+                 
+                 $GetNumberOfDays = @()
+                 for ($i = 0; $i -lt $AllFound.count; $i++) {
+                
+                     $Nextdate = $i + 1
+                     if (  $null -ne $AllFound[$Nextdate].DATE ) {
+                         $TotalDays = New-TimeSpan -Start $AllFound[$i].DATE -End  $AllFound[$Nextdate].DATE | Select-Object -Property TotalDays 
+                         $GetNumberOfDays += $TotalDays                    
+                     }
+                 } 
+
+                 $Media = Get-Median $GetNumberOfDays.TotalDays
+                 $Moda  = Get-Moda   $GetNumberOfDays.TotalDays
+                 $Mean  = Get-Mean   $GetNumberOfDays.TotalDays
+                 $LastPlayed = $AllFound | Select-Object -Last 1
+                 Write-Output ("$RedBallNumber,"+$AllFound.count+","+ [int]$Mean +","+[int]$Media +","+$Moda +"," + $LastPlayed.DATE) | Add-Content $RedBallsDaysStadistic -Force
+             }
         }
     }
 }
-################### END REFRESH LOCAL DATA FUNCTION #####################
-
-#function to Get the median.
-
-##########################GET MEDIAN FUNCTION ##########################
-function Get-Median
-{
-    param(
-    # The numbers to average
-    [Parameter(Mandatory=$true,ValueFromPipelineByPropertyName=$true,Position=0)]
-    [Double[]]
-    $Number
-    )
-    
-    begin {
-        $numberSeries = @()
-    }
-    
-    process {
-        $numberSeries += $number
-    }
-    end {
-        $sortedNumbers = @($numberSeries | Sort-Object)
-        if ($numberSeries.Count % 2) {
-            # Odd, pick the middle
-            $sortedNumbers[($sortedNumbers.Count / 2) - 1]
-        } else {
-            # Even, average the middle two
-            ($sortedNumbers[($sortedNumbers.Count / 2)] + $sortedNumbers[($sortedNumbers.Count / 2) - 1]) / 2
-        }                        
-    }
-} 
-########################## END MEDIAN FUNCTION ##########################
-
-##########################GET MODA FUNCTION ##########################
-function Get-Moda {
-    param(
-        # The numbers to average
-        [Parameter(Mandatory = $true, ValueFromPipelineByPropertyName = $true, Position = 0)]
-        [Double[]]
-        $Number
-    )
-    
-    begin {
-        $numberSeries = @()
-    }
-    
-    process {
-        $numberSeries += $number
-    }
-    
-    end {
-        $data = $numberSeries
-
-        $i = 0
-        $modevalue = @()
-        foreach ($group in ($data | Group-Object | Sort-Object -Descending count)) {
-            if ($group.count -ge $i) {
-                $i = $group.count
-                $modevalue += $group.Name
-            }
-            else {
-                break
-            }
-        }
-
-        # $modevalue = $modevalue | ForEach-Object { Write-Output $_  }
-         
-        # $modevalue = $modevalue | ForEach-Object { [int]$_; if ($_ -le 9) { $_ = "0" + $_ } }
-
-         $modevalue
-       
-    }
-} 
-########################## END MEDIAN FUNCTION ##########################
+################### TODO: END REFRESH LOCAL DATA FUNCTION #####################
 
     #Refresh Local Data
     Get-RefreshLocalDataSets($TodayDate)
@@ -182,15 +251,10 @@ function Get-Moda {
 if ( $false -notin $VerifyLocalDataSets) {
     
     #Importing Data From CSV as Objects 
-    $AllFrom1To5 = Import-Csv  $LocalAllWhiteBalls | Select-Object -Property All, DATE
-    $AllRedBall = Import-Csv  $LocalAllRedBalls | Select-Object -Property RB, DATE
+    $AllFrom1To5 = Import-Csv  $WhiteBallsDaysStadistic
+    $AllRedBall  = Import-Csv  $RedBallsDaysStadistic
 
-    ########################## DRAWWING  FUNCTION ###########################
-    
-    #Function to Draw Random number with high drawing rate.
-    # Also calculate the median of days that the number play.
-    #Function For Drawing Random numbers
-
+    ########################## TODO: DRAWWING  FUNCTION ###########################    
     function DrawWiningNumbers {
     #Object to storage number in position 1 to 5 (White Ball)
     $WiningNumbers = @()
@@ -208,53 +272,31 @@ if ( $false -notin $VerifyLocalDataSets) {
         
             #Search for how many times the random number has been played during the past 10 year of data
             #Organize the object item from older to newer
-            $TotalFound = $AllFrom1To5 | Where-Object { $_.All -eq $DrawNumber } | Sort-Object { $_.DATE -as [datetime] }
-            
-            #Test: Write-Host $TotalFound.Count
+            $TotalFound = $AllFrom1To5 | Where-Object { $_.NUMBER -eq "$DrawNumber" } 
 
-            ############## Calculate media  Total of the number played, dates of the number +played, number of days between dates
-            #Number of day between today and last played date #
-            
-            $GetNumberOfDays = @()
+            $LastGame = New-TimeSpan -Start $TotalFound.LASTDATE -End  $NextDrawdate | Select-Object -Property TotalDays
 
-            for ($i = 0; $i -lt $TotalFound.Count; $i++) {
-               $Nextdate = $i + 1
-                if ( $null -ne $TotalFound[$Nextdate].DATE) {
-                    $GetNumberOfDays += New-TimeSpan -Start $TotalFound[$i].DATE -End  $TotalFound[$Nextdate].DATE | Select-Object -Property TotalDays 
-               }
-            } 
+             #TEST: Write-Host "==========================================================="
+             #TEST: Write-Host "White Ball:"  $TotalFound.NUMBER -ForegroundColor DarkCyan
+             #TEST: Write-Host "Total Plays:"  $TotalFound.TOTALPLAY
+             #TEST: Write-Host "Last play todal days:"$LastGame.TotalDays -ForegroundColor Yellow
+             #TEST: Write-Host "Mean:" $TotalFound.MEAN 
+             #TEST: Write-Host "Median:" $TotalFound.MEDIAN 
+             #TEST: Write-Host "Moda:"  $TotalFound.MODA 
             
-          #  $startdateindex = 0
-          # $enddateindex   = 1
-          #  do {
-          #     $GetNumberOfDays += New-TimeSpan -Start $TotalFound[$startdateindex].DATE -End  $TotalFound[$enddateindex].DATE | Select-Object -Property TotalDays 
+            #The number must be played in the past 10 years 72 or more times or be any of the following numbers 61,64,69
+             #Or the number of days since the last play is mejor than the median or equal or mejor then the average
+            if (($TotalFound.TOTALPLAY -ge 72 -or $DrawNumber -in "61", "64","66", "69") -and  ($LastGame.TotalDays -gt $TotalFound.MEDIAN -or $LastGame.TotalDays -ge $TotalFound.MEAN  )) {
                 
-          #      $startdateindex ++
-           #     $enddateindex   ++
-           # } until ($null -eq $TotalFound[$enddateindex].DATE)
+                $Compliance = $true
+            }else
+            {   $Compliance = $false }
 
-            $LastPlayedNumberdate = $TotalFound | Select-Object -Last 1
-            $LastGame = New-TimeSpan -Start $LastPlayedNumberdate.DATE -End  $NextDrawdate | Select-Object -Property TotalDays            
-            $Median = Get-Median  $GetNumberOfDays.TotalDays
-            $Moda  = Get-Moda    $GetNumberOfDays.TotalDays
-            #############  Calculate media 
-
-            #The number generated must not be one of the preveus number generated 
-            #The number must be played in the past 10 years 70 or more times or be any of the following numbers 61,64,69
-            
-              Write-Host "White Ball:" "$DrawNumber" -ForegroundColor DarkCyan
-              Write-Host  "Last play todal days:"  $LastGame.TotalDays -ForegroundColor Yellow
-              Write-Host "Media:" $Median -ForegroundColor Red
-              Write-Host "Moda:"  $Moda -ForegroundColor Green
-              Write-Host "total times" $TotalFound.count
-            # -and ( $Media -ge $LastGame.TotalDays -or  $LastGame.TotalDays -in $Moda )
-
-        } until ( ( $DrawNumber -notin $WiningNumbers ) -and ($TotalFound.Count -ge 72 -or $DrawNumber -in "61", "64","66", "69"))
+        } until ( ( $DrawNumber -notin $WiningNumbers ) -and ( $true -eq $Compliance ))
       
         $WiningNumbers += $DrawNumber
     }
   
- 
     #Generating Red Ball (Power Ball) randomly 
     do {
         $RedBall = (Get-Random -Minimum 01 -Maximum 26)
@@ -265,47 +307,26 @@ if ( $false -notin $VerifyLocalDataSets) {
         }
     
         #Search for how many times the random number has been played during the past 10 year of data
-        $TotalRedBallFound = $AllRedBall | Where-Object { $_.RB -eq $RedBall }  | Sort-Object { $_.DATE -as [datetime] }
-        
-        ############# Calculate Media
-        #Get all the number games of each number and get their median of playing days
-        
-           $GetNumberOfDays = @()
+        $TotalRedBallFound = $AllRedBall | Where-Object { $_.NUMBER -eq "$RedBall" } 
 
-            
-           for ($i = 0; $i -lt   $TotalRedBallFound.Count; $i++) {
-               $Nextdate = $i + 1
-                if ( $null -ne  $TotalRedBallFound[$Nextdate].DATE) {
-                   $GetNumberOfDays += New-TimeSpan -Start $TotalFound[$i].DATE -End  $TotalFound[$Nextdate].DATE | Select-Object -Property TotalDays 
-                }
-           } 
-
-           # $startdateindex = 0
-           # $enddateindex   = 1
-           # do {
-           #    $GetNumberOfDays += New-TimeSpan -Start $TotalRedBallFound[$startdateindex].DATE -End  $TotalRedBallFound[$enddateindex].DATE | Select-Object -Property TotalDays 
+        $LastGame = New-TimeSpan -Start $TotalRedBallFound.LASTDATE -End  $NextDrawdate | Select-Object -Property TotalDays
+      
+        #The number must be played in the past 10 years 32 or more times
+        #Or the number of days since the last play is mejor than the median or equal or mejor then the average
+       if ((  $TotalRedBallFound.TOTALPLAY -ge 32 ) -and  ($LastGame.TotalDays -gt   $TotalRedBallFound.MEDIAN -or $LastGame.TotalDays -ge  $TotalRedBallFound.MEAN  )) {
                 
-           #     $startdateindex ++
-           #    $enddateindex   ++
-           #} until ($null -eq $TotalRedBallFound[$enddateindex].DATE)
+          $Compliance = $true 
+       }
+       else
+       {  $Compliance = $false }
 
-            $LastPlayedNumberdate =   $TotalRedBallFound | Select-Object -Last 1
-            $LastGame = New-TimeSpan -Start $LastPlayedNumberdate.DATE -End  $NextDrawdate | Select-Object -Property TotalDays
-            $Median = Get-Median  $GetNumberOfDays.TotalDays 
-            $Moda  = Get-Moda    $GetNumberOfDays.TotalDays
-            ############# Calculate Media
+    } until ( $true -eq $Compliance)
 
-          
-        #The number must be played in the past 10 years 30 or more times
-        # -and (  $Media -ge $LastGame.TotalDays -or  $LastGame.TotalDays -in $Moda  )
-
-    } until (( $TotalRedBallFound.Count -ge 32 ))
-
-    Write-Host "Power Ball:"  "$RedBall" -ForegroundColor DarkCyan
-    Write-Host  "Last play todal days:"  $LastGame.TotalDays -ForegroundColor Yellow
-    Write-Host "Media:" $Median -ForegroundColor Red
-    Write-Host "Moda:"  $Moda -ForegroundColor Green
-    Write-Host "Play total" $TotalRedBallFound.Count
+    #Write-Host "Power Ball:"  "$RedBall" -ForegroundColor DarkCyan
+    #Write-Host "Last play todal days:"  $LastGame.TotalDays -ForegroundColor Yellow
+    #Write-Host "Media:"  $TotalRedBallFound.MEDIAN -ForegroundColor Red
+    #Write-Host "Moda:"  $TotalRedBallFound.MODA -ForegroundColor Green
+    #Write-Host "Play total"  $TotalRedBallFound.TOTALPLAY
 
     #Number randomly generated for White Ball 
     $WiningNumbers = $WiningNumbers | Sort-Object
@@ -318,52 +339,70 @@ if ( $false -notin $VerifyLocalDataSets) {
     return  $WiningNumbers + $RedBall
     }
 
-    ########################## END DRAWWING  FUNCTION #######################
+    ########################## TODO: END DRAWWING  FUNCTION #######################
 
     #loading History results   
     $HistoryDataResults = Import-Csv $LocalHistoryResults | Select-Object -Property All
 
     ##################################### USER INTERACTION #######################################
-    
-    Write-Host 'Pick your Numbers $$$' -ForegroundColor Yellow
-    $PickNumbers = Read-Host "How many Numbers ?" #Capture Input
+    Clear-Host
+    Write-Host "!!!Welcome To PowerBall Draw Plus!!!" -BackgroundColor  DarkMagenta
+    #Write-Host "Type your username:" -ForegroundColor Yellow
+    $UserName = Read-Host "What is your username pick any?:"
 
-    #If the input are numbers
-    if ($PickNumbers -match '\d' ) {
-        
-        $SaveResults=@()
-        $SaveResultsToCSV =@()
-        #Get the total of number input by the user
-        for ($i = 0; $i -lt $PickNumbers; $i++) {
+    $PreveusDrew =  Get-ChildItem -Path .\PickedNumbers -File *$UserName* 
+    if (  $null -ne $PreveusDrew  -and $null -ne $UserName ) { 
+       Write-Host "We have found Preveus Drew in your name" -ForegroundColor Green
+
+       $GetResult = Read-Host "Do you wan to check your tickets 1 = YES 2 = NO?"
        
-            #Get number that it is not equal to any of the preveus wining number in the past 10 years
-            do {            
-                #Temp variable for Random number without spaces between numbers
-                $FullNumber = $null 
-                $ForCsvitems = $null
-                $Getnumbers = DrawWiningNumbers #Get Random numbers function 
-                $Getnumbers | ForEach-Object { $FullNumber += "$_"; $ForCsvitems += "$_," }
-               
-                if ( $FullNumber -in $SaveResults ) {
-                     $Duplicated = $true
-                }else{
-                     $SaveResultsToCSV += $ForCsvitems
-                     $Duplicated = $false
-                }
-
-                $SaveResults += $FullNumber
-                #Write-Host $FullNumber #Test
-            } until ( ($FullNumber -notin $HistoryDataResults.All) -and ( $Duplicated -eq $false ) )
-        }
-        
-        #Creating PickedNumbers.CSV for saving the picked numbers in the end of the execution
-        if ( (Test-Path $LocalPickedNumbersPath) -eq $false ) {
-
-            New-Item -ItemType Directory -Force -Path $LocalPickedNumbersPath | Out-Null     
-        }
-        Write-Output "N1,N2,N3,N4,N5,RB,DATE" | Out-File "$LocalPickedNumbersPath\Picked-$TodayDate.csv" -Force
-        $SaveResultsToCSV | ForEach-Object {  Write-Output ($_ + $TodayDate)} | Out-File "$LocalPickedNumbersPath\Picked-$TodayDate.csv" -Append -Force
     }
+
+    if ($GetResult -match '\d' -and $GetResult -eq 1 ) {
+        
+    }
+    else {
+        Write-Host "$ Let's Draw your Numbers $" -ForegroundColor Yellow
+       $PickNumbers = Read-Host "How many Numbers ?" #Capture Input
+    
+        #If the input are numbers
+        if ($PickNumbers -match '\d' ) {
+            
+            $SaveResults=@()
+            $SaveResultsToCSV =@()
+            #Get the total of number input by the user
+            for ($i = 0; $i -lt $PickNumbers; $i++) {
+           
+                #Get number that it is not equal to any of the preveus wining number in the past 10 years
+                do {            
+                    #Temp variable for Random number without spaces between numbers
+                    $FullNumber = $null 
+                    $ForCsvitems = $null
+                    $Getnumbers = DrawWiningNumbers #Get Random numbers function 
+                    $Getnumbers | ForEach-Object { $FullNumber += "$_"; $ForCsvitems += "$_," }
+                   
+                    if ( $FullNumber -in $SaveResults ) {
+                         $Duplicated = $true
+                    }else{
+                         $SaveResultsToCSV += $ForCsvitems
+                         $Duplicated = $false
+                    }
+    
+                    $SaveResults += $FullNumber
+                    #Write-Host $FullNumber 
+                } until ( ($FullNumber -notin $HistoryDataResults.All) -and ( $Duplicated -eq $false ) )
+            }
+            
+            #Creating PickedNumbers.CSV for saving the picked numbers in the end of the execution
+            if ( (Test-Path $LocalPickedNumbersPath) -eq $false ) {
+    
+                New-Item -ItemType Directory -Force -Path $LocalPickedNumbersPath | Out-Null     
+            }
+            Write-Output "N1,N2,N3,N4,N5,RB,DATE" | Out-File "$LocalPickedNumbersPath\Picked-$UserName-$TodayDate.csv" -Force
+            $SaveResultsToCSV | ForEach-Object {  Write-Output ($_ + $TodayDate)} | Out-File "$LocalPickedNumbersPath\Picked-$UserName-$TodayDate.csv" -Append -Force
+        }
+    }
+  
 
     ##################################### END USER INTERACTION #######################################
 }
