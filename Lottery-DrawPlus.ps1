@@ -11,7 +11,6 @@ $NextDrawdate =  Get-Date
 while ($NextDrawdate.DayOfWeek  -notin 'Wednesday','Saturday') { $NextDrawdate = $NextDrawdate.AddDays(1) }
 $NextDrawdate = $NextDrawdate.ToString('MM-dd-yyyy')
 
-
 #Local Data files path
 $LocalDataSetsPath      = ".\Datasets"
 $LocalPickedNumbersPath = ".\PickedNumbers"
@@ -27,7 +26,7 @@ $VerifyLocalDataSets    = Test-Path -Path  $LocalDataSetsPath , $LocalWebData, $
 $RefreshDayNumber = 4
 ########################################## END SETTINGS VARIABLES ############################################
 
-##########################################! MEAN, MEDIAN, MODA FUNCTION ###################################!
+##########################################! MEAN, MEDIAN, MODE FUNCTION ###################################!
 function Get-Mean {
     param(
         # The numbers to average
@@ -76,7 +75,7 @@ function Get-Median {
         }                        
     }
 } 
-function Get-Moda {
+function Get-Mode {
     param(
         # The numbers to average
         [Parameter(Mandatory = $true, ValueFromPipelineByPropertyName = $true, Position = 0)]
@@ -112,7 +111,7 @@ function Get-Moda {
     }
 } 
 
-#####################################! END: MEAN, MEDIAN, MODA FUNCTION ###################################!
+#####################################! END: MEAN, MEDIAN, MODE FUNCTION ###################################!
 
 #Function to Refresh local Datasets.
 
@@ -136,8 +135,7 @@ function Get-RefreshLocalDataSets ($Date) {
     
         try {
             #PowerBall Lottery API Get Request From data.ny.gov public API 10 years records.
-            $UrlEncode = "aAB0AHQAcABzADoALwAvAGQAYQB0AGEALgBuAHkALgBnAG8AdgAvAHIAZQBzAG8AdQByAGMAZQAvAGQANgB5AHkALQA1ADQAbgByAC4AagBzAG8AbgA="
-            $Url = [System.Text.Encoding]::Unicode.GetString([System.Convert]::FromBase64String($UrlEncode))
+            $Url = "https://data.ny.gov/resource/d6yy-54nr.json"
             $OnlineData = Invoke-RestMethod -Method 'Get' -Uri $Url  -ErrorAction Stop 
             $APIOnline = $true
         }
@@ -154,8 +152,10 @@ function Get-RefreshLocalDataSets ($Date) {
         if ($true -eq $APIOnline) {
             
             #EXPORT: Parsin Data from API Response to CSV and Adding commas to API Response. 
+            $Progress = 0
             $WiningNumbersToCSV = $OnlineData | ForEach-Object { $Date = [datetime]$_.draw_date ; $Date = $Date.ToString('MM-dd-yyyy'); 
-                Write-Output  (($_.winning_numbers -replace (" ", ",")) + "," + $Date) }
+            Write-Progress -Activity 'Parsing Data From API:' -Status "Creating Local Dataset..." -PercentComplete (($Progress/$OnlineData.Count)*100)  
+            Write-Output  (($_.winning_numbers -replace (" ", ",")) + "," + $Date) ; $Progress ++ }
             $CSVHeaders = "N1,N2,N3,N4,N5,RB,DATE" 
             Write-Output  $CSVHeaders | Out-File    $LocalWebData  -Force
             $WiningNumbersToCSV | Add-Content $LocalWebData  -Force 
@@ -167,16 +167,16 @@ function Get-RefreshLocalDataSets ($Date) {
          
             #IMPORT: Data from local Webdata.CSV to create one object with the wining number from N1 TO N5 (White Balls)
             $AllWebDataFromCSV = Import-Csv  $LocalWebData
-        
             #Selecting the all the number in position 1 to 5 (White Balls)
-            $NFrom1To5 = $AllWebDataFromCSV | Select-Object -Property N1, N2, N3, N4, N5, DATE
+            $NFrom1To5 = $AllWebDataFromCSV | Select-Object -Property N1, N2, N3, N4, N5, DATE 
             #Adding all the numbers from position 1 to 5 (White Balls) in one object 
-            $AllFrom1To5 = $NFrom1To5 | ForEach-Object { Write-Output ( $_.N1 + "," + $_.DATE) } 
-            $AllFrom1To5 += $NFrom1To5 | ForEach-Object { Write-Output ( $_.N2 + "," + $_.DATE) } 
-            $AllFrom1To5 += $NFrom1To5 | ForEach-Object { Write-Output ( $_.N3 + "," + $_.DATE) } 
-            $AllFrom1To5 += $NFrom1To5 | ForEach-Object { Write-Output ( $_.N4 + "," + $_.DATE) } 
-            $AllFrom1To5 += $NFrom1To5 | ForEach-Object { Write-Output ( $_.N5 + "," + $_.DATE) } 
-
+            $AllFrom1To5 =  $NFrom1To5 | ForEach-Object { 
+            Write-Output ( $_.N1 + "," + $_.DATE);
+            Write-Output ( $_.N2 + "," + $_.DATE); 
+            Write-Output ( $_.N3 + "," + $_.DATE);
+            Write-Output ( $_.N4 + "," + $_.DATE);
+            Write-Output ( $_.N5 + "," + $_.DATE);    } 
+    
             #Creating CSV File with all the numbers from the position 1 to 5 (White Balls)
             Write-Output "All,DATE" | Out-File    $LocalAllWhiteBalls -Force
             $AllFrom1To5 | Add-Content $LocalAllWhiteBalls -Force
@@ -191,7 +191,7 @@ function Get-RefreshLocalDataSets ($Date) {
             #Calculate White Balls and Save Local, number, totalplay  Mean, Media, Moda, lastdate  
             $WhiteBalls = Import-Csv $LocalAllWhiteBalls 
             $WhiteBallsRange = (1..69)
-            Write-Output "NUMBER,TOTALPLAY,MEAN,MEDIAN,MODA,LASTDATE" | Out-File $WhiteBallsDaysStadistic
+            Write-Output "NUMBER,TOTALPLAY,MEAN,MEDIAN,MODE,LASTDATE,TOTALDAYS" | Out-File $WhiteBallsDaysStadistic
             $WhiteBallsRange = $WhiteBallsRange | ForEach-Object { if ($_ -le 9) { $_ = ("0"+$_) }; Write-Output $_ } 
            
             foreach ( $WhiteBallNumber in $WhiteBallsRange) {
@@ -199,47 +199,59 @@ function Get-RefreshLocalDataSets ($Date) {
                 $AllFound = $AllFound | Sort-Object { $_.DATE -as [datetime] }
                 
                 $GetNumberOfDays = @()
-                for ($i = 0; $i -lt $AllFound.count; $i++) {
-               
-                    $Nextdate = $i + 1
-                    if (  $null -ne $AllFound[$Nextdate].DATE ) {
-                        $TotalDays = New-TimeSpan -Start $AllFound[$i].DATE -End  $AllFound[$Nextdate].DATE | Select-Object -Property TotalDays 
-                        $GetNumberOfDays += $TotalDays
-                    }
-                } 
+                $ProgressBarText = "Calculating: Mean, Median and Mode between number of days for WhiteBalls... N:"
+                $StartDateIndex = 0 ; $EndDateIndex = 1
+                
+                do {
+                   $TotalDays = New-TimeSpan -Start $AllFound[$StartDateIndex].DATE -End  $AllFound[$EndDateIndex].DATE | Select-Object -Property TotalDays 
+                   Write-Progress -Activity "$ProgressBarText $WhiteBallNumber" -Status ("From: " +$AllFound[$StartDateIndex].DATE + " To " +$AllFound[$EndDateIndex].DATE +" Total days: " +$TotalDays.TotalDays) -PercentComplete (( $WhiteBallNumber / 69 ) * 100) 
+                  
+                   $GetNumberOfDays += $TotalDays                
+                   $StartDateIndex ++ ;  $EndDateIndex ++
+                } until ($null -eq $AllFound[$EndDateIndex].DATE)
              
-                $Media = Get-Median $GetNumberOfDays.TotalDays
-                $Moda = Get-Moda $GetNumberOfDays.TotalDays
-                $Mean = Get-Mean $GetNumberOfDays.TotalDays
+                $Median = Get-Median $GetNumberOfDays.TotalDays
+                $Mode   = Get-Mode $GetNumberOfDays.TotalDays
+                $Mean   = Get-Mean $GetNumberOfDays.TotalDays
+
                 $LastPlayed = $AllFound | Select-Object -Last 1
-                Write-Output ("$WhiteBallNumber,"+$AllFound.count+","+ [int]$Mean +","+[int]$Media +","+$Moda +"," + $LastPlayed.DATE) | Add-Content $WhiteBallsDaysStadistic -Force
+                $ToTaldays  = New-TimeSpan -Start $LastPlayed.DATE -End $NextDrawdate | Select-Object -Property TotalDays 
+
+                Write-Output ("$WhiteBallNumber,"+$AllFound.count+","+ [int]$Mean +","+[int]$Median +","+$Mode +"," + $LastPlayed.DATE+","+ $TotalDays.TotalDays) | Add-Content $WhiteBallsDaysStadistic -Force
             }
 
              #Calculate Red Balls and Save Local, number, totalplay  Mean, Media, Moda, lastdate  
              $RedBalls = Import-Csv $LocalAllRedBalls
              $RedBallsRange = (1..26)
-             Write-Output "NUMBER,TOTALPLAY,MEAN,MEDIAN,MODA,LASTDATE" | Out-File $RedBallsDaysStadistic
+             Write-Output "NUMBER,TOTALPLAY,MEAN,MEDIAN,MODE,LASTDATE,TOTALDAYS" | Out-File $RedBallsDaysStadistic
              $RedBallsRange = $RedBallsRange | ForEach-Object { if ($_ -le 9) { $_ = ("0"+$_) }; Write-Output $_ } 
+
              foreach ( $RedBallNumber in  $RedBallsRange ) {
+
                  $AllFound =  $RedBalls | Where-Object { $_.RB -eq $RedBallNumber }
                  $AllFound = $AllFound | Sort-Object { $_.DATE -as [datetime] }
                  
                  $GetNumberOfDays = @()
-                 for ($i = 0; $i -lt $AllFound.count; $i++) {
-                
-                     $Nextdate = $i + 1
-                     if (  $null -ne $AllFound[$Nextdate].DATE ) {
-                         $TotalDays = New-TimeSpan -Start $AllFound[$i].DATE -End  $AllFound[$Nextdate].DATE | Select-Object -Property TotalDays 
-                         $GetNumberOfDays += $TotalDays                    
-                     }
-                 } 
+                 $ProgressBarText = "Calculating: Mean, Median and Mode between number of days for RedBalls... N:"
+                 $StartDateIndex = 0 ; $EndDateIndex = 1
+                 
+                 do {
+                    $TotalDays = New-TimeSpan -Start $AllFound[$StartDateIndex].DATE -End  $AllFound[$EndDateIndex].DATE | Select-Object -Property TotalDays 
+                    Write-Progress -Activity "$ProgressBarText $RedBallNumber" -Status ("From: " +$AllFound[$StartDateIndex].DATE + " To " +$AllFound[$EndDateIndex].DATE +" Total days: " +$TotalDays.TotalDays) -PercentComplete (( $RedBallNumber / 26 ) * 100) 
+                    $GetNumberOfDays += $TotalDays                
+                    $StartDateIndex ++ ;  $EndDateIndex ++
+                 } until ($null -eq $AllFound[$EndDateIndex].DATE)
 
-                 $Media = Get-Median $GetNumberOfDays.TotalDays
-                 $Moda  = Get-Moda   $GetNumberOfDays.TotalDays
-                 $Mean  = Get-Mean   $GetNumberOfDays.TotalDays
+                 $Median = Get-Median $GetNumberOfDays.TotalDays
+                 $Mode   = Get-Mode   $GetNumberOfDays.TotalDays
+                 $Mean   = Get-Mean   $GetNumberOfDays.TotalDays
+
                  $LastPlayed = $AllFound | Select-Object -Last 1
-                 Write-Output ("$RedBallNumber,"+$AllFound.count+","+ [int]$Mean +","+[int]$Media +","+$Moda +"," + $LastPlayed.DATE) | Add-Content $RedBallsDaysStadistic -Force
-             }
+                 $ToTaldays  = New-TimeSpan -Start $LastPlayed.DATE -End $NextDrawdate | Select-Object -Property TotalDays 
+
+                 Write-Output ("$RedBallNumber,"+$AllFound.count+","+ [int]$Mean +","+[int]$Median +","+$Mode +"," + $LastPlayed.DATE +","+ $TotalDays.TotalDays) | Add-Content $RedBallsDaysStadistic -Force
+                }
+                Write-Host "Local DataSets Successfully Refreshed" -ForegroundColor Green
         }
     }
 }
@@ -286,7 +298,7 @@ if ( $false -notin $VerifyLocalDataSets) {
             
             #The number must be played in the past 10 years 72 or more times or be any of the following numbers 61,64,69
              #Or the number of days since the last play is mejor than the median or equal or mejor then the average
-            if (($TotalFound.TOTALPLAY -ge 72 -or $DrawNumber -in "61", "64","66", "69") -and  ($LastGame.TotalDays -gt $TotalFound.MEDIAN -or $LastGame.TotalDays -ge $TotalFound.MEAN  )) {
+            if (($TotalFound.TOTALPLAY -ge 74 -or $DrawNumber -in "61", "64","66", "69") -and  ($LastGame.TotalDays -gt $TotalFound.MEDIAN -or $LastGame.TotalDays -ge $TotalFound.MEAN  )) {
                 
                 $Compliance = $true
             }else
@@ -313,7 +325,7 @@ if ( $false -notin $VerifyLocalDataSets) {
       
         #The number must be played in the past 10 years 32 or more times
         #Or the number of days since the last play is mejor than the median or equal or mejor then the average
-       if ((  $TotalRedBallFound.TOTALPLAY -ge 32 ) -and  ($LastGame.TotalDays -gt   $TotalRedBallFound.MEDIAN -or $LastGame.TotalDays -ge  $TotalRedBallFound.MEAN  )) {
+       if ((  $TotalRedBallFound.TOTALPLAY -ge 33 ) -and  ($LastGame.TotalDays -gt   $TotalRedBallFound.MEDIAN -or $LastGame.TotalDays -ge  $TotalRedBallFound.MEAN  )) {
                 
           $Compliance = $true 
        }
@@ -406,7 +418,8 @@ if ( $false -notin $VerifyLocalDataSets) {
             Write-Output "N1,N2,N3,N4,N5,RB,DATE" | Out-File "$LocalPickedNumbersPath\Picked-$UserName-$TodayDate.csv" -Force
             $SaveResultsToCSV | ForEach-Object {  Write-Output ($_ + $TodayDate)} | Out-File "$LocalPickedNumbersPath\Picked-$UserName-$TodayDate.csv" -Append -Force
         }
-    }  
+    }
+  
 
     ##################################### END USER INTERACTION #######################################
 }
