@@ -5,7 +5,7 @@ $OnlineData = Invoke-RestMethod -Method 'Get' -Uri $url
 
 $GetLastResult = $OnlineData.results | Select-Object -First 1
 #Import Picked numbers
-$PickNumbers = Import-Csv  ".\PickedNumbers\Picked-alonso-08-21-2019.csv"
+$PickNumbers = Import-Csv  .\PickedNumbers\Picked-carlos-08-24-2019.csv
 $WonNumbers = @()
 $PowerBall = @()
 $PowerPlay = @()
